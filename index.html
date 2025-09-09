@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>🩺 Clinical Study Appraisal Agent</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#121832; --text:#e8ecff; --muted:#a9b1d6; --accent:#7aa2f7; --ok:#98c379; --warn:#e5c07b; --err:#e06c75; }
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial,sans-serif}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+    h1{font-size:clamp(24px,3.5vw,36px);margin:0 0 8px}
+    .card{background:var(--panel);border:1px solid #1f274a;border-radius:16px;padding:18px;margin:14px 0;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    label{display:block;margin:10px 0 6px;color:var(--muted);font-size:14px}
+    input[type="text"], input[type="password"], textarea{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #2a335f;background:#0e1430;color:var(--text);outline:none}
+    textarea{min-height:140px;resize:vertical}
+    .row{display:flex;gap:16px;flex-wrap:wrap}
+    .col{flex:1 1 300px}
+    .btn{cursor:pointer;display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid #2a335f;background:linear-gradient(180deg,#1a2246,#12193a);color:var(--text);font-weight:600}
+    .btn.primary{border-color:#3153b6;background:linear-gradient(180deg,#2a4bc9,#1c2c7a)}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .muted{color:var(--muted)}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #2a335f;color:var(--muted);font-size:12px}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    pre{white-space:pre-wrap;word-wrap:break-word;background:#0b112a;border:1px solid #1d2652;border-radius:12px;padding:12px}
+    .ok{color:var(--ok)} .warn{color:var(--warn)} .err{color:var(--err)}
+    .drop{border:1px dashed #2a335f;border-radius:12px;padding:18px;text-align:center;background:#0d1431}
+    .footer{margin:30px 0;color:#93a0d1;font-size:12px}
+    a{color:var(--accent)}
+    .code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+    details>summary{cursor:pointer}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🩺 Clinical Study Appraisal Agent</h1>
+  <p class="muted">Static, client-side app. Works on <span class="pill">GitHub Pages</span>. Your <span class="code">OpenAI API key</span> stays in your browser.<br/>If a URL is blocked by CORS, download the PDF and upload it.</p>
+
+  <div class="card">
+    <div class="row">
+      <div class="col">
+        <label>OpenAI API key <span class="muted">(kept locally; only sent to OpenAI)</span></label>
+        <input id="apiKey" type="password" placeholder="sk-..." />
+        <small class="muted">Saved to <span class="code">localStorage</span> when you click Run.</small>
+      </div>
+      <div class="col">
+        <label>PubMed email (E-utilities etiquette)</label>
+        <input id="pubmedEmail" type="text" placeholder="you@example.com" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col">
+        <label>Upload study PDF</label>
+        <div class="drop" id="drop">
+          <input id="pdfFile" type="file" accept="application/pdf" />
+          <div class="muted">or paste a URL on the right →</div>
+        </div>
+      </div>
+      <div class="col">
+        <label>…or paste article URL</label>
+        <input id="urlInput" type="text" placeholder="https://journal-site.com/article or PDF URL"/>
+        <small class="muted">If blocked by CORS, download and upload the PDF instead.</small>
+      </div>
+    </div>
+
+    <div class="row" style="align-items:center;justify-content:space-between;margin-top:12px">
+      <div>
+        <button id="runBtn" class="btn primary">▶ Run critical appraisal</button>
+      </div>
+      <div class="muted">Model: <span class="code" id="modelName">gpt-5-thinking</span></div>
+    </div>
+  </div>
+
+  <div id="status" class="card muted">Ready.</div>
+
+  <div class="card">
+    <h3>Structured outputs</h3>
+    <div class="grid">
+      <details>
+        <summary><b>Classification</b></summary>
+        <pre id="classification"></pre>
+      </details>
+      <details>
+        <summary><b>Risk of Bias</b></summary>
+        <pre id="rob"></pre>
+      </details>
+      <details>
+        <summary><b>Context studies (PubMed)</b></summary>
+        <pre id="context"></pre>
+      </details>
+      <details>
+        <summary><b>GRADE</b></summary>
+        <pre id="grade"></pre>
+      </details>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Critical appraisal (Markdown)</h3>
+    <pre id="report"></pre>
+    <div class="row">
+      <button id="dlJson" class="btn">⬇ Download JSON</button>
+      <button id="dlMd" class="btn">⬇ Download Markdown</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Diagnostics & tests</h3>
+    <div class="row">
+      <button id="testPdf" class="btn">🧪 PDF.js self-test</button>
+      <button id="testPubMed" class="btn">🧪 PubMed ping</button>
+      <button id="testHtmlStrip" class="btn">🧪 HTML strip test</button>
+      <button id="testLoader" class="btn">🧪 PDF.js loader test</button>
+    </div>
+    <pre id="diag"></pre>
+  </div>
+
+  <p class="footer">⚠️ Your API key is stored locally in your browser. For institutional deployments, use a small server proxy to keep keys off the client.</p>
+</div>
+
+<script>
+const STATE = { model: 'gpt-5-thinking', openaiBase: 'https://api.openai.com/v1', ctxN: 12 };
+
+const SYSTEM_CORE = `You are a rigorous clinical epidemiology assistant trained in evidence synthesis and bias appraisal. Follow CONSORT, STROBE, PRISMA, QUADAS-2, ROB 2, ROBINS-I, and GRADE conventions. Be precise. If data is missing, say so.`;
+
+const CLASSIFY_PROMPT = (study) => `Classify the study using this JSON schema:
+{ "study_type": str,
+  "population": str,
+  "intervention_or_index": str,
+  "comparator": str,
+  "outcomes": [str],
+  "setting": str,
+  "registration": str,
+  "funding_icoi": str,
+  "key_results": [str]
+}
+
+Study text:
+${study}`;
+
+const ROB_PROMPT = (cls, study) => `Use the appropriate risk-of-bias tool and return JSON:
+{ "tool_used": "ROB 2"|"ROBINS-I"|"QUADAS-2"|"AMSTAR 2"|"NIH observational"|"Other",
+  "domains": [{"domain": str, "judgment": "Low"|"Some concerns"|"High", "rationale": str}],
+  "overall_risk_of_bias": "Low"|"Some concerns"|"High" }
+
+Classification JSON:
+${JSON.stringify(cls)}
+
+Study text:
+${study}`;
+
+const CONTEXT_QUERY_PROMPT = (cls) => `Build a focused PubMed query (single line) for the PICO/PECO in the index study, prioritizing recent high-quality studies. Classification JSON:
+${JSON.stringify(cls)}`;
+
+const CONTEXT_SYNTH_PROMPT = (cls, abstracts) => `Position the index study within the abstracts below. Identify concordance/discordance, consistency/heterogeneity, effect modifiers, safety, and uncertainties. Close with 2–3 sentences on practice implications today.
+
+Index study (classification JSON):
+${JSON.stringify(cls)}
+
+Comparator abstracts:
+${abstracts}`;
+
+const GRADE_PROMPT = (cls, study) => `Provide a brief GRADE-style certainty for key outcomes. Return a JSON list where each item is:
+{ "outcome": str,
+  "starting_level": "High"|"Moderate"|"Low",
+  "adjustments": [{"factor":"risk of bias"|"inconsistency"|"indirectness"|"imprecision"|"publication bias",
+                    "direction":"downgrade"|"upgrade", "magnitude":1|2, "justification":str}],
+  "final_certainty": "High"|"Moderate"|"Low"|"Very Low" }
+
+Classification JSON:
+${JSON.stringify(cls)}
+Study text:
+${study}`;
+
+const REPORT_PROMPT = (cls, rob, ctx, grade) => `Create a clinician-facing critical appraisal in Markdown with sections:
+1) What was asked? (PICO/PECO)
+2) Study design & methods
+3) Main results (with 95% CIs; absolute numbers if available)
+4) Risk of bias (summary + bullets)
+5) Limitations
+6) Context within literature
+7) Clinical implications
+8) GRADE-style certainty (table-like markdown)
+9) Key quotes (short verbatim + where from)
+
+Inputs:
+- CLASSIFICATION JSON:
+${JSON.stringify(cls)}
+- ROB JSON:
+${JSON.stringify(rob)}
+- CONTEXT SUMMARY:
+${ctx}
+- GRADE JSON (list):
+${JSON.stringify(grade)}
+If data is missing, mark "not reported".`;
+
+function setStatus(msg, cls='muted'){ const el=document.getElementById('status'); el.className='card '+cls; el.textContent=msg; }
+function $(id){ return document.getElementById(id); }
+
+// UMD-only PDF.js loader (works on GitHub Pages)
+async function ensurePdfJs(){
+  const CDNJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.6.82/';
+  const UNPKG = 'https://unpkg.com/pdfjs-dist@4.6.82/build/';
+  function load(src){
+    return new Promise((resolve,reject)=>{
+      const s=document.createElement('script');
+      s.src=src; s.crossOrigin='anonymous';
+      s.onload=resolve; s.onerror=()=>reject(new Error('Failed to load '+src));
+      document.head.appendChild(s);
+    });
+  }
+  if (window.pdfjsLib && window.pdfjsLib.getDocument) {
+    try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = CDNJS + 'pdf.worker.min.js'; } catch(_) {}
+    return window.pdfjsLib;
+  }
+  try { await load(CDNJS + 'pdf.min.js'); }
+  catch { await load(UNPKG + 'pdf.min.js'); }
+  if (!window.pdfjsLib || !window.pdfjsLib.getDocument) throw new Error('PDF.js UMD failed to load');
+  try { window.pdfjsLib.GlobalWorkerOptions.workerSrc = CDNJS + 'pdf.worker.min.js'; }
+  catch { window.pdfjsLib.GlobalWorkerOptions.workerSrc = UNPKG + 'pdf.worker.min.js'; }
+  return window.pdfjsLib;
+}
+
+// OpenAI chat completion helper
+async function openai(system, user, apiKey){
+  const resp = await fetch(`${STATE.openaiBase}/chat/completions`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
+    body: JSON.stringify({ model: STATE.model, messages:[{role:'system', content:system},{role:'user', content:user}], temperature:0.1 })
+  });
+  if(!resp.ok){ throw new Error(`OpenAI error: ${resp.status} ${await resp.text()}`); }
+  const data = await resp.json();
+  return data.choices[0].message.content;
+}
+
+function parseJSON(text){
+  try{ return JSON.parse(text); }catch(e){
+    const m = text.match(/\{[\s\S]*\}/);
+    if(m){ return JSON.parse(m[0]); }
+    return null;
+  }
+}
+
+// Strip HTML (very light)
+function stripHtml(html){
+  return html.replace(/<script[\s\S]*?<\/script>/gi,'')
+             .replace(/<style[\s\S]*?<\/style>/gi,'')
+             .replace(/<[^>]+>/g,' ');
+}
+
+// PDF text extraction
+async function extractPdfText(file){
+  const pdfjsLib = await ensurePdfJs();
+  if (!pdfjsLib || !pdfjsLib.getDocument) throw new Error('pdfjsLib not ready');
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const pdf = await (loadingTask.promise || loadingTask);
+  let out = '';
+  for(let i=1;i<=pdf.numPages;i++){
+    const page = await pdf.getPage(i);
+    const txt = await page.getTextContent();
+    out += txt.items.map(it=>it.str).join(' ') + '
+';
+    if(out.length>45000) break;
+  }
+  return out;
+}
+
+// URL extract w/ CORS note
+async function extractUrlText(url){
+  try{
+    const r = await fetch(url, {mode:'cors'});
+    if(!r.ok) throw new Error(`Fetch failed: ${r.status}`);
+    const ct = r.headers.get('content-type')||'';
+    if(ct.includes('pdf') || url.toLowerCase().endsWith('.pdf')){
+      const blob = await r.blob();
+      return await extractPdfText(new File([blob], 'remote.pdf', {type:'application/pdf'}));
+    }
+    const html = await r.text();
+    return stripHtml(html);
+  }catch(e){
+    throw new Error('URL fetch blocked or failed. If this is a PDF behind CORS, download it and upload directly. Details: '+e.message);
+  }
+}
+
+// PubMed helpers
+async function esearch(term, email){
+  const url = new URL('https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi');
+  url.searchParams.set('db','pubmed');
+  url.searchParams.set('term', term);
+  url.searchParams.set('retmode','json');
+  url.searchParams.set('retmax', String(STATE.ctxN));
+  url.searchParams.set('tool','appraisal_agent_pages');
+  url.searchParams.set('email', email||'you@example.com');
+  const r = await fetch(url);
+  const j = await r.json();
+  return (j.esearchresult && j.esearchresult.idlist) || [];
+}
+
+async function efetch(pmids, email){
+  if(!pmids.length) return [];
+  const url = new URL('https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi');
+  url.searchParams.set('db','pubmed');
+  url.searchParams.set('id', pmids.join(','));
+  url.searchParams.set('retmode','xml');
+  url.searchParams.set('tool','appraisal_agent_pages');
+  url.searchParams.set('email', email||'you@example.com');
+  const r = await fetch(url);
+  const txt = await r.text();
+  const recs = [];
+  for(const chunk of txt.split('<PubmedArticle>').slice(1)){
+    const g = (re)=>{ const m = chunk.match(re); return m? m[1].replace(/<[^>]+>/g,'').trim():'' };
+    const pmid = g(/<PMID[^>]*>(\d+)<\/PMID>/);
+    const title = g(/<ArticleTitle>([\s\S]*?)<\/ArticleTitle>/);
+    const abst = g(/<Abstract>([\s\S]*?)<\/Abstract>/);
+    recs.push({pmid,title,abstract:abst});
+  }
+  return recs;
+}
+
+function download(filename, text){
+  const a = document.createElement('a');
+  a.href = 'data:text/plain;charset=utf-8,' + encodeURIComponent(text);
+  a.download = filename; a.click();
+}
+
+$('runBtn').onclick = async () => {
+  try{
+    const apiKey = $('apiKey').value.trim();
+    const email = $('pubmedEmail').value.trim();
+    if(!apiKey){ setStatus('Enter your OpenAI API key to run.', 'warn'); return; }
+    localStorage.setItem('OPENAI_KEY', apiKey);
+    setStatus('Extracting text…');
+
+    const file = $('pdfFile').files[0];
+    const url = $('urlInput').value.trim();
+    if(!file && !url){ setStatus('Provide a PDF or URL.', 'warn'); return; }
+
+    let studyText = '';
+    if(file){ studyText = await extractPdfText(file); }
+    else { studyText = await extractUrlText(url); }
+
+    if(studyText.length < 500){ setStatus('Extracted text is too short; use a full PDF if possible.', 'warn'); return; }
+    studyText = studyText.slice(0, 45000);
+
+    setStatus('Classifying study & extracting PICO…');
+    const clsRaw = await openai(SYSTEM_CORE, CLASSIFY_PROMPT(studyText), apiKey);
+    const cls = parseJSON(clsRaw) || {notes: clsRaw};
+    $('classification').textContent = JSON.stringify(cls, null, 2);
+
+    setStatus('Risk of bias appraisal…');
+    const robRaw = await openai(SYSTEM_CORE, ROB_PROMPT(cls, studyText), apiKey);
+    const rob = parseJSON(robRaw) || {notes: robRaw};
+    $('rob').textContent = JSON.stringify(rob, null, 2);
+
+    setStatus('Building PubMed query & fetching context…');
+    const q = (await openai(SYSTEM_CORE, CONTEXT_QUERY_PROMPT(cls), apiKey)).trim().replace(/
+/g,' ');
+    const ids = await esearch(q, email);
+    const recs = await efetch(ids, email);
+    $('context').textContent = JSON.stringify(recs, null, 2);
+
+    const abstracts = recs.map(r=>`PMID ${r.pmid}: ${r.title}
+${r.abstract}`).join('
+
+').slice(0, 45000);
+    const ctxTxt = await openai(SYSTEM_CORE, CONTEXT_SYNTH_PROMPT(cls, abstracts), apiKey);
+
+    setStatus('GRADE certainty…');
+    const gradeRaw = await openai(SYSTEM_CORE, GRADE_PROMPT(cls, studyText), apiKey);
+    let grade; try{ grade = JSON.parse(gradeRaw); }catch{ grade = [{notes: gradeRaw}]; }
+    $('grade').textContent = JSON.stringify(grade, null, 2);
+
+    setStatus('Rendering final report…');
+    const reportMd = await openai(SYSTEM_CORE, REPORT_PROMPT(cls, rob, ctxTxt, grade), apiKey);
+    $('report').textContent = reportMd;
+
+    const payload = { classification: cls, risk_of_bias: rob, context_studies: recs, grade, report_markdown: reportMd };
+    $('dlJson').onclick = () => download('appraisal_output.json', JSON.stringify(payload, null, 2));
+    $('dlMd').onclick  = () => download('appraisal_report.md', reportMd);
+
+    setStatus('Done. You can download JSON/Markdown below.', 'ok');
+  }catch(err){
+    console.error(err);
+    setStatus('Error: '+ err.message, 'err');
+  }
+};
+
+(function(){ const k = localStorage.getItem('OPENAI_KEY'); if(k) $('apiKey').value = k; })();
+
+// --- Diagnostics ---
+const BASE64_PDF =
+  'JVBERi0xLjQKJcTl8uXrp/Og0MTGCjEgMCBvYmoKPDwvVHlwZS9DYXRhbG9nL1BhZ2VzIDIgMCBSCj4+CmVuZG9iagoKMiAwIG9iago8PC9UeXBlL1BhZ2VzL0tpZHMgWzMgMCBSXS9Db3VudCAxPj4KZW5kb2JqCgozIDAgb2JqCjw8L1R5cGUvUGFnZS9QYXJlbnQgMiAwIFIvUmVzb3VyY2VzPDwvRm9udDw8L0YxIDQgMCBSPj4+Pi9NZWRpYUJveFswIDAgNjEyIDc5Ml0vQ29udGVudHMgNSAwIFI+PgplbmRvYmoKCjQgMCBvYmoKPDwvVHlwZS9Gb250L1N1YnR5cGUvVHlwZTEvTmFtZS9GMS9CYXNlRm9udC9IZWx2ZXRpY2E+PgplbmRvYmoKCjUgMCBvYmoKPDwvTGVuZ3RoIDYyPj4Kc3RyZWFtCkJUIC9GMSAyNCBUZgowIDcwMCBUZAooSGVsbG8gV29ybGQhKSBUagpFVAplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCA3CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDA5MCAwMDAwMCBuIAowMDAwMDAwMTYzIDAwMDAwIG4gCjAwMDAwMDAyMzYgMDAwMDAgbiAKMDAwMDAwMDM0MSAwMDAwMCBuIAowMDAwMDAwNDI4IDAwMDAwIG4gCnRyYWlsZXIKPDwvUm9vdCAxIDAgUi9TaXplIDc+PgpzdGFydHhyZWYKNDUyCiUlRU9G';
+
+document.getElementById('testPdf').onclick = async () => {
+  try{
+    setStatus('Diagnostics: loading PDF.js (UMD) and parsing embedded PDF…');
+    const bytes = Uint8Array.from(atob(BASE64_PDF), c => c.charCodeAt(0));
+    const txt = await extractPdfText(new File([bytes], 'hello.pdf', {type:'application/pdf'}));
+    document.getElementById('diag').textContent = `PDF.js OK. Extracted ${txt.length} chars. Preview:
+` + txt.slice(0,120) + '…';
+    setStatus('Diagnostics OK (PDF.js).', 'ok');
+  }catch(e){
+    document.getElementById('diag').textContent = 'PDF.js error: ' + e.message;
+    setStatus('Diagnostics failed (PDF.js).', 'err');
+  }
+};
+
+document.getElementById('testPubMed').onclick = async () => {
+  try{
+    setStatus('Diagnostics: calling PubMed E-utilities…');
+    const ids = await esearch('stroke randomized trial', document.getElementById('pubmedEmail').value.trim()||'you@example.com');
+    const recs = await efetch(ids.slice(0,3), document.getElementById('pubmedEmail').value.trim()||'you@example.com');
+    document.getElementById('diag').textContent = 'PubMed OK. Sample titles:
+' + recs.map(r=>`PMID ${r.pmid}: ${r.title}`).join('
+');
+    setStatus('Diagnostics OK (PubMed).', 'ok');
+  }catch(e){
+    document.getElementById('diag').textContent = 'PubMed error: ' + e.message;
+    setStatus('Diagnostics failed (PubMed).', 'err');
+  }
+};
+
+document.getElementById('testHtmlStrip').onclick = () => {
+  const html = '<html><head><style>h1{color:red}</style><script>console.log(1)</script></head><body><h1>Title</h1><p>Body <b>text</b>.</p></body></html>';
+  const txt = stripHtml(html);
+  document.getElementById('diag').textContent = 'HTML strip OK. Output:
+' + txt;
+};
+
+document.getElementById('testLoader').onclick = async () => {
+  try{
+    const lib = await ensurePdfJs();
+    document.getElementById('diag').textContent = 'Loader OK. pdfjsLib.getDocument exists: ' + !!(lib && lib.getDocument);
+  } catch(e){
+    document.getElementById('diag').textContent = 'Loader error: ' + e.message;
+  }
+};
+</script>
+</body>
+</html>
